@@ -62,7 +62,7 @@ public static class AutomationEngine
                 }
                 var changes = registry.UpdateState(action.TargetDeviceId, action.SetState);
                 foreach (var change in changes)
-                    applied.Add($"{action.TargetDeviceId}.{change.Field}={change.New}");
+                    applied.Add($"{action.TargetDeviceId}.{change.Field}={change.NewValue}");
                 if (changes.Count == 0)
                     applied.Add($"{action.TargetDeviceId}: already in target state");
             }
