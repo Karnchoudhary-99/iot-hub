@@ -16,3 +16,4 @@ jobs:
           dotnet-version: "8.0.x"
       - run: dotnet build src/IotHub
       - run: dotnet test test/IotHub.Tests
+      - run: sh examples/server-tour.sh

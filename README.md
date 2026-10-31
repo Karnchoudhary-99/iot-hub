@@ -8,7 +8,7 @@ automation rules that react to device state, and a control CLI — in C#.
 - [x] Project scaffold (console app layout, CI, README)
 - [x] Device registry (register, group, state tracking)
 - [x] Automation rules (triggers, conditions, actions)
-- [ ] Control CLI + hub server
+- [x] Control CLI + hub server
 - [ ] Self-review checklist, then public
 
 ## Quick start
@@ -86,6 +86,44 @@ Commands: `rule-add`, `rules`, `rule-remove <id>`,
 `rule-enable <id>` / `rule-disable <id>`, `run-rules`.
 
 Try it: `sh examples/rules-demo.sh` (uses a throwaway store).
+
+## Hub server
+
+The same registry and rules are available over HTTP. Start the server
+(it shares the CLI's store file, so CLI and HTTP views stay in sync):
+
+```sh
+dotnet run --project src/IotHub -- serve --port 8080
+curl http://localhost:8080/health
+curl -X POST http://localhost:8080/devices \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"lamp","name":"Lamp","kind":"light","group":"living-room"}'
+curl -X PATCH http://localhost:8080/devices/lamp/state \
+  -H 'Content-Type: application/json' -d '{"power":true,"brightness":70}'
+```
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/health` | Status plus device/rule counts |
+| GET | `/devices[?group=&kind=&online=]` | List, with the CLI's filters |
+| POST | `/devices` | `{id, name, kind, group}` → 201, 409 on duplicate |
+| GET / DELETE | `/devices/{id}` | |
+| PATCH | `/devices/{id}/state` | Partial state patch; fires rules like `set-state`, returns `{device, changes, firings}` |
+| POST | `/devices/{id}/online`, `/offline` | |
+| GET | `/devices/{id}/history[?limit=]` | Newest first |
+| GET | `/groups` | |
+| GET / POST | `/rules` | `{id, name, when, actions[], cooldownSeconds, enabled}` |
+| DELETE | `/rules/{id}` | |
+| POST | `/rules/{id}/enable`, `/disable` | |
+| POST | `/run-rules` | Returns `{firings}` |
+
+Errors are JSON `{"error": "..."}` with 400 (bad input), 404
+(unknown id or route), 405 (wrong method) or 409 (duplicate id).
+Routing lives in the socket-free `HubApi` handler, so the endpoint
+suite runs without binding a port; the server itself is exercised
+live by CI via `sh examples/server-tour.sh` (uses a throwaway store).
+
+Try it: `sh examples/server-tour.sh`.
 
 ## License
 
