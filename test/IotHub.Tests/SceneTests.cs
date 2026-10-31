@@ -138,6 +138,8 @@ public sealed class CliSceneTests : IDisposable
             "--step", "lamp:power=on" }, output, Store));
     }
 }
+
+public sealed class SceneStoreTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "iot-hub-scenes-" + Guid.NewGuid().ToString("N"));
     private string ScenesPath => Path.Combine(_dir, "hub.scenes.json");
