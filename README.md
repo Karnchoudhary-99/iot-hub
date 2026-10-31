@@ -7,7 +7,7 @@ automation rules that react to device state, and a control CLI — in C#.
 
 - [x] Project scaffold (console app layout, CI, README)
 - [x] Device registry (register, group, state tracking)
-- [ ] Automation rules (triggers, conditions, actions)
+- [x] Automation rules (triggers, conditions, actions)
 - [ ] Control CLI + hub server
 - [ ] Self-review checklist, then public
 
@@ -44,6 +44,48 @@ Commands: `register`, `list [--group G] [--kind K] [--online]`, `show <id>`,
 offline; default 60).
 Exit codes: 0 ok, 1 runtime error (unknown device, duplicate id, bad value),
 2 usage error.
+
+## Automation rules
+
+A rule watches one device's state and, when its condition holds, applies
+state changes to target devices — "when the hall thermostat reads over
+25 °C, switch the fan plug on":
+
+```sh
+dotnet run --project src/IotHub -- rule-add --id hot-fan --name "Fan on when hot" \
+  --when hall-thermostat:temperatureC:gt:25 --action fan-plug:power=on
+dotnet run --project src/IotHub -- set-state hall-thermostat --temperature 27
+# Rule fired: hot-fan "Fan on when hot" — applied: fan-plug.power=on
+```
+
+Conditions are `DEVICE:FIELD:OP:VALUE`. Fields: `power`, `brightness`,
+`temperatureC` (alias `temperature`), `humidityPct` (alias `humidity`),
+`locked`, `reading`, `online`. Operators: `eq`, `ne`, `gt`, `ge`, `lt`,
+`le`, `contains` (reading only); `=`, `!=`, `>`, `>=`, `<`, `<=` are
+accepted as aliases. Boolean values accept `on`/`off`, `locked`/`unlocked`,
+`online`/`offline`, `true`/`false`. A field the hub has never seen (null)
+never matches, so a rule cannot fire on an unknown reading.
+
+Actions are `TARGET:FIELD=VALUE` (repeat `--action` for several targets),
+with the same fields as `set-state`. Rules are evaluated automatically
+after every `set-state`, and on demand with `run-rules`.
+
+Safety behaviour, in order: disabled rules never fire; a rule inside its
+cooldown (default 60 s, `--cooldown N`, persisted across CLI invocations)
+never fires; an action whose target is unknown or offline is skipped and
+reported, and does not consume the cooldown — the rule retries on the next
+evaluation instead of going quiet. Actions go through the same validated,
+history-recorded state update as a manual `set-state`.
+
+Rules live in a sidecar file next to the store (`iot-hub.json` →
+`iot-hub.rules.json`), saved atomically like the registry. Rules are
+validated on load, and `rule-add` rejects rules pointing at devices that
+are not registered.
+
+Commands: `rule-add`, `rules`, `rule-remove <id>`,
+`rule-enable <id>` / `rule-disable <id>`, `run-rules`.
+
+Try it: `sh examples/rules-demo.sh` (uses a throwaway store).
 
 ## License
 
