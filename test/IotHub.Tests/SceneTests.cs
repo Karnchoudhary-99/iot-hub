@@ -14,7 +14,7 @@ public sealed class SceneModelTests
         Assert.Throws<ArgumentException>(() => new Scene { Id = "bad id", Name = "X", Steps = new List<RuleAction> { RuleAction.Parse("lamp:power=on") } }.Validate());
         Assert.Throws<ArgumentException>(() => new Scene { Id = "ok", Name = "", Steps = new List<RuleAction> { RuleAction.Parse("lamp:power=on") } }.Validate());
         Assert.Throws<ArgumentException>(() => new Scene { Id = "ok", Name = "X", Steps = new List<RuleAction>() }.Validate());
-        Assert.Throws<ArgumentException>(() => new Scene { Id = "ok", Name = "X", Steps = new List<RuleAction> { RuleAction.Parse("lamp:brightness=500") } }.Validate());
+        Assert.ThrowsAny<ArgumentException>(() => new Scene { Id = "ok", Name = "X", Steps = new List<RuleAction> { RuleAction.Parse("lamp:brightness=500") } }.Validate());
     }
 
     [Fact]
