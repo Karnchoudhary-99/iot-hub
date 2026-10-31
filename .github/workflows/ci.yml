@@ -15,3 +15,4 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - run: dotnet build src/IotHub
+      - run: dotnet test test/IotHub.Tests
