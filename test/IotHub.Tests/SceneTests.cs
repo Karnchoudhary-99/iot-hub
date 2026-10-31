@@ -30,7 +30,114 @@ public sealed class SceneModelTests
     }
 }
 
-public sealed class SceneStoreTests : IDisposable
+public sealed class SceneApplierTests
+{
+    private static DeviceRegistry Setup(bool plugOnline = true)
+    {
+        var registry = new DeviceRegistry();
+        registry.Register(new Device { Id = "lamp", Name = "Lamp", Kind = DeviceKind.Light, State = new DeviceState { Power = true, Brightness = 80 } });
+        registry.Register(new Device { Id = "plug", Name = "Plug", Kind = DeviceKind.Plug, IsOnline = plugOnline, State = new DeviceState { Power = true } });
+        return registry;
+    }
+
+    private static Scene Goodnight() => new()
+    {
+        Id = "goodnight",
+        Name = "Goodnight",
+        Steps = new List<RuleAction> { RuleAction.Parse("lamp:power=off"), RuleAction.Parse("plug:power=off") },
+    };
+
+    [Fact]
+    public void Apply_Applies_Steps_In_Order_And_Records_History()
+    {
+        var registry = Setup();
+        var result = SceneApplier.Apply(registry, Goodnight());
+        Assert.Empty(result.Skipped);
+        Assert.Contains("lamp.power=off", result.Applied);
+        Assert.Contains("plug.power=off", result.Applied);
+        Assert.False(registry.GetOrThrow("lamp").State.Power);
+        Assert.Single(registry.History("lamp"));
+    }
+
+    [Fact]
+    public void Apply_Skips_Offline_And_Unknown_Targets_Without_Marking_Online()
+    {
+        var registry = Setup(plugOnline: false);
+        var result = SceneApplier.Apply(registry, Goodnight());
+        Assert.Contains("plug: offline", result.Skipped);
+        Assert.False(registry.GetOrThrow("plug").IsOnline);
+        var withGhost = Goodnight();
+        withGhost.Steps.Add(RuleAction.Parse("ghost:power=on"));
+        var result2 = SceneApplier.Apply(registry, withGhost);
+        Assert.Contains("ghost: unknown device", result2.Skipped);
+    }
+
+    [Fact]
+    public void Apply_Reports_Already_Satisfied_Steps()
+    {
+        var registry = Setup();
+        var scene = new Scene { Id = "noop", Name = "No-op", Steps = new List<RuleAction> { RuleAction.Parse("lamp:power=on") } };
+        // Lamp starts on, so the step changes nothing — but the scene still
+        // reports it instead of silently dropping it.
+        registry.GetOrThrow("lamp").State.Power = true;
+        var result = SceneApplier.Apply(registry, scene);
+        Assert.Contains("lamp: already in target state", result.Applied);
+    }
+}
+
+public sealed class CliSceneTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "iot-hub-cli-scenes-" + Guid.NewGuid().ToString("N"));
+    private string Store => Path.Combine(_dir, "hub.json");
+
+    public CliSceneTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() { try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ } }
+
+    private void RegisterDevices(StringWriter output)
+    {
+        Assert.Equal(0, HubCli.Run(new[] { "register", "--id", "lamp", "--name", "Lamp", "--kind", "light" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "register", "--id", "door", "--name", "Door", "--kind", "lock" }, output, Store));
+    }
+
+    [Fact]
+    public void Cli_Scene_Add_Apply_And_Remove()
+    {
+        var output = new StringWriter();
+        RegisterDevices(output);
+        Assert.Equal(0, HubCli.Run(new[] { "set-state", "lamp", "--power", "on" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "scene-add", "--id", "goodnight", "--name", "Goodnight",
+            "--step", "lamp:power=off", "--step", "door:locked=locked" }, output, Store));
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "scenes" }, output, Store));
+        Assert.Contains("goodnight", output.ToString());
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "scene-apply", "goodnight" }, output, Store));
+        Assert.Contains("Scene applied: goodnight", output.ToString());
+        Assert.Contains("applied: lamp.power=off", output.ToString());
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "show", "lamp" }, output, Store));
+        Assert.Contains("power=off", output.ToString());
+
+        Assert.Equal(0, HubCli.Run(new[] { "scene-remove", "goodnight" }, output, Store));
+        Assert.Equal(1, HubCli.Run(new[] { "scene-apply", "goodnight" }, output, Store));
+    }
+
+    [Fact]
+    public void Cli_Scene_Add_Rejects_Unknown_Devices_And_Duplicates()
+    {
+        var output = new StringWriter();
+        RegisterDevices(output);
+        Assert.Equal(1, HubCli.Run(new[] { "scene-add", "--id", "bad", "--name", "Bad",
+            "--step", "ghost:power=on" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "scene-add", "--id", "goodnight", "--name", "Goodnight",
+            "--step", "lamp:power=off" }, output, Store));
+        Assert.Equal(1, HubCli.Run(new[] { "scene-add", "--id", "goodnight", "--name", "Again",
+            "--step", "lamp:power=on" }, output, Store));
+    }
+}
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "iot-hub-scenes-" + Guid.NewGuid().ToString("N"));
     private string ScenesPath => Path.Combine(_dir, "hub.scenes.json");
