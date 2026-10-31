@@ -40,6 +40,7 @@ public static class HubCli
                 "rule-enable" => RuleSetEnabled(args, output, storePath, true),
                 "rule-disable" => RuleSetEnabled(args, output, storePath, false),
                 "run-rules" => RunRules(output, storePath),
+                "serve" => Server.HubServer.Run(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
         }
@@ -352,5 +353,6 @@ public static class HubCli
         output.WriteLine("  rule-add --id ID --name NAME --when DEVICE:FIELD:OP:VALUE --action TARGET:FIELD=VALUE [--action ...] [--cooldown N] [--disabled]");
         output.WriteLine("  rules | rule-remove <rule-id> | rule-enable <rule-id> | rule-disable <rule-id>");
         output.WriteLine("  run-rules  (rules also evaluate automatically after every set-state)");
+        output.WriteLine("  serve [--port N]  (HTTP API on http://localhost:N/, default 8080)");
     }
 }
