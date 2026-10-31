@@ -45,6 +45,7 @@ public static class HubCli
                 "scenes" => Scenes(output, storePath),
                 "scene-remove" => SceneRemove(args, output, storePath),
                 "scene-apply" => SceneApply(args, output, storePath),
+                "group-set" => GroupSet(args, output, storePath),
                 "serve" => Server.HubServer.Run(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
@@ -298,6 +299,22 @@ public static class HubCli
         return firings;
     }
 
+    // -- group control ---------------------------------------------------
+
+    private static int GroupSet(string[] args, TextWriter output, string storePath)
+    {
+        var (pos, flags) = Parse(args, 1);
+        if (pos.Count != 1) return UsageError(output, "Usage: group-set <group> [--power on|off] [--brightness n] [--temperature x] [--humidity x] [--locked locked|unlocked] [--reading text]");
+        var patch = ParseStatePatch(flags);
+        var registry = JsonRegistryStore.Load(storePath);
+        var result = GroupControl.ApplyToGroup(registry, pos[0], patch);
+        JsonRegistryStore.Save(registry, storePath);
+        output.WriteLine($"Group updated: {result.Group}");
+        foreach (var a in result.Applied) output.WriteLine($"  applied: {a}");
+        foreach (var s in result.Skipped) output.WriteLine($"  skipped: {s}");
+        return 0;
+    }
+
     // -- scenes ----------------------------------------------------------
 
     private static int SceneAdd(string[] args, TextWriter output, string storePath)
@@ -449,6 +466,7 @@ public static class HubCli
         output.WriteLine("  run-rules  (rules also evaluate automatically after every set-state)");
         output.WriteLine("  scene-add --id ID --name NAME --step TARGET:FIELD=VALUE [--step ...]");
         output.WriteLine("  scenes | scene-remove <scene-id> | scene-apply <scene-id>");
+        output.WriteLine("  group-set <group> [--power on|off] [--brightness N] [--temperature X] [--humidity X] [--locked locked|unlocked] [--reading TEXT]");
         output.WriteLine("  serve [--port N]  (HTTP API on http://localhost:N/, default 8080)");
     }
 }
