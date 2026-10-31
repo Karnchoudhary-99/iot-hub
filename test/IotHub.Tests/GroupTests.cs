@@ -1,4 +1,5 @@
 using Xunit;
+using System.IO;
 using IotHub.Devices;
 
 namespace IotHub.Tests;
@@ -42,5 +43,38 @@ public sealed class GroupControlTests
         var registry = Setup();
         Assert.Throws<KeyNotFoundException>(() => GroupControl.ApplyToGroup(registry, "attic", new DeviceState { Power = false }));
         Assert.ThrowsAny<ArgumentException>(() => GroupControl.ApplyToGroup(registry, "living-room", new DeviceState { Brightness = 500 }));
+    }
+}
+
+public sealed class CliGroupTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "iot-hub-cli-groups-" + Guid.NewGuid().ToString("N"));
+    private string Store => Path.Combine(_dir, "hub.json");
+
+    public CliGroupTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() { try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ } }
+
+    [Fact]
+    public void Cli_Group_Set_Updates_Group_And_Reports_Skips()
+    {
+        var output = new StringWriter();
+        Assert.Equal(0, HubCli.Run(new[] { "register", "--id", "lamp1", "--name", "Lamp 1", "--kind", "light", "--group", "living-room" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "register", "--id", "lamp2", "--name", "Lamp 2", "--kind", "light", "--group", "living-room" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "register", "--id", "hall-lamp", "--name", "Hall lamp", "--kind", "light", "--group", "hall" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "set-state", "lamp1", "--power", "on" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "set-state", "lamp2", "--power", "on" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "offline", "lamp2" }, output, Store));
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "group-set", "living-room", "--power", "off" }, output, Store));
+        Assert.Contains("Group updated: living-room", output.ToString());
+        Assert.Contains("applied: lamp1.power=off", output.ToString());
+        Assert.Contains("skipped: lamp2: offline", output.ToString());
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "show", "hall-lamp" }, output, Store));
+        Assert.DoesNotContain("power=off", output.ToString());
+
+        Assert.Equal(1, HubCli.Run(new[] { "group-set", "attic", "--power", "off" }, output, Store));
     }
 }
