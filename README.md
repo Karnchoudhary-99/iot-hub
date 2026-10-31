@@ -10,6 +10,7 @@ automation rules that react to device state, and a control CLI — in C#.
 - [x] Automation rules (triggers, conditions, actions)
 - [x] Control CLI + hub server
 - [x] Scenes (named multi-device actions, CLI + HTTP)
+- [x] Group control (bulk room patch, CLI + HTTP)
 - [ ] Self-review checklist, then public
 
 ## Quick start
@@ -109,6 +110,23 @@ Scenes live in a sidecar file next to the store (`iot-hub.json` →
 
 Try it: `sh examples/scenes-demo.sh`.
 
+## Group control
+
+One command updates a whole room at once — every device in the group
+gets the same state patch, so "lights out in the living room" is one
+call, not one per lamp. Offline devices are skipped and reported (the
+hub never pretends to reach a device it cannot), and devices already in
+the target state are reported as such.
+
+```sh
+dotnet run --project src/IotHub -- group-set living-room --power off
+```
+
+Also available over HTTP: `PATCH /groups/{group}/state` with a partial
+state body (`{"power":false}`), returning `{group, applied, skipped}`.
+
+Try it: `sh examples/group-demo.sh`.
+
 ## Hub server
 
 The same registry and rules are available over HTTP. Start the server
@@ -141,6 +159,7 @@ curl -X PATCH http://localhost:8080/devices/lamp/state \
 | GET / POST | `/scenes` | `{id, name, steps[]}` |
 | DELETE | `/scenes/{id}` | |
 | POST | `/scenes/{id}/apply` | Returns `{sceneId, applied, skipped}` |
+| PATCH | `/groups/{group}/state` | Bulk patch for one room; returns `{group, applied, skipped}` |
 
 Errors are JSON `{"error": "..."}` with 400 (bad input), 404
 (unknown id or route), 405 (wrong method) or 409 (duplicate id).
