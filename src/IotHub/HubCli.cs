@@ -1,5 +1,6 @@
 using IotHub.Automation;
 using IotHub.Devices;
+using IotHub.Scenes;
 
 namespace IotHub;
 
@@ -40,6 +41,10 @@ public static class HubCli
                 "rule-enable" => RuleSetEnabled(args, output, storePath, true),
                 "rule-disable" => RuleSetEnabled(args, output, storePath, false),
                 "run-rules" => RunRules(output, storePath),
+                "scene-add" => SceneAdd(args, output, storePath),
+                "scenes" => Scenes(output, storePath),
+                "scene-remove" => SceneRemove(args, output, storePath),
+                "scene-apply" => SceneApply(args, output, storePath),
                 "serve" => Server.HubServer.Run(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
@@ -299,6 +304,85 @@ public static class HubCli
         return firings;
     }
 
+    // -- scenes ----------------------------------------------------------
+
+    private static int SceneAdd(string[] args, TextWriter output, string storePath)
+    {
+        // --step may repeat, so scan here instead of using Parse (which keeps
+        // only the last value per flag).
+        var flags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var steps = new List<string>();
+        for (var i = 1; i < args.Length; i++)
+        {
+            if (args[i].StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length)
+            {
+                if (args[i] == "--step") steps.Add(args[++i]);
+                else flags[args[i][2..]] = args[++i];
+            }
+            else if (args[i].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException($"Flag '{args[i]}' needs a value.");
+            else
+                return UsageError(output, "Usage: scene-add --id ID --name NAME --step TARGET:FIELD=VALUE [--step ...]");
+        }
+        var scene = new Scene
+        {
+            Id = Required(flags, "id"),
+            Name = Required(flags, "name"),
+            Steps = steps.Select(RuleAction.Parse).ToList(),
+        };
+        scene.Validate();
+        if (steps.Count == 0)
+            throw new ArgumentException("At least one --step is required.");
+        var scenesPath = JsonSceneStore.ScenesPathFor(storePath);
+        var scenes = JsonSceneStore.Load(scenesPath);
+        if (scenes.Any(s => s.Id == scene.Id))
+            throw new InvalidOperationException($"A scene with id '{scene.Id}' already exists.");
+        // A step pointing at a device that was never registered can never
+        // apply, only confuse — same guard as rule-add.
+        var registry = JsonRegistryStore.Load(storePath);
+        foreach (var step in scene.Steps) _ = registry.GetOrThrow(step.TargetDeviceId);
+        scenes.Add(scene);
+        JsonSceneStore.Save(scenes, scenesPath);
+        output.WriteLine($"Added scene {scene}");
+        return 0;
+    }
+
+    private static int Scenes(TextWriter output, string storePath)
+    {
+        var scenes = JsonSceneStore.Load(JsonSceneStore.ScenesPathFor(storePath));
+        if (scenes.Count == 0) output.WriteLine("No scenes.");
+        foreach (var s in scenes) output.WriteLine(s);
+        return 0;
+    }
+
+    private static int SceneRemove(string[] args, TextWriter output, string storePath)
+    {
+        var (pos, _) = Parse(args, 1);
+        if (pos.Count != 1) return UsageError(output, "Usage: scene-remove <scene-id>");
+        var scenesPath = JsonSceneStore.ScenesPathFor(storePath);
+        var scenes = JsonSceneStore.Load(scenesPath);
+        if (scenes.RemoveAll(s => s.Id == pos[0]) == 0) { output.WriteLine($"Error: No scene with id '{pos[0]}'."); return 1; }
+        JsonSceneStore.Save(scenes, scenesPath);
+        output.WriteLine($"Removed scene {pos[0]}.");
+        return 0;
+    }
+
+    private static int SceneApply(string[] args, TextWriter output, string storePath)
+    {
+        var (pos, _) = Parse(args, 1);
+        if (pos.Count != 1) return UsageError(output, "Usage: scene-apply <scene-id>");
+        var scenes = JsonSceneStore.Load(JsonSceneStore.ScenesPathFor(storePath));
+        var scene = scenes.FirstOrDefault(s => s.Id == pos[0]);
+        if (scene is null) { output.WriteLine($"Error: No scene with id '{pos[0]}'."); return 1; }
+        var registry = JsonRegistryStore.Load(storePath);
+        var result = SceneApplier.Apply(registry, scene);
+        JsonRegistryStore.Save(registry, storePath);
+        output.WriteLine($"Scene applied: {scene.Id} \"{scene.Name}\"");
+        foreach (var a in result.Applied) output.WriteLine($"  applied: {a}");
+        foreach (var s in result.Skipped) output.WriteLine($"  skipped: {s}");
+        return 0;
+    }
+
     // -- parsing helpers -------------------------------------------------
 
     private static (List<string> Positional, Dictionary<string, string> Flags) Parse(string[] args, int start)
@@ -353,6 +437,8 @@ public static class HubCli
         output.WriteLine("  rule-add --id ID --name NAME --when DEVICE:FIELD:OP:VALUE --action TARGET:FIELD=VALUE [--action ...] [--cooldown N] [--disabled]");
         output.WriteLine("  rules | rule-remove <rule-id> | rule-enable <rule-id> | rule-disable <rule-id>");
         output.WriteLine("  run-rules  (rules also evaluate automatically after every set-state)");
+        output.WriteLine("  scene-add --id ID --name NAME --step TARGET:FIELD=VALUE [--step ...]");
+        output.WriteLine("  scenes | scene-remove <scene-id> | scene-apply <scene-id>");
         output.WriteLine("  serve [--port N]  (HTTP API on http://localhost:N/, default 8080)");
     }
 }
