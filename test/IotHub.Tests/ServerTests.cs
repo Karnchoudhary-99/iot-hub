@@ -51,10 +51,10 @@ public sealed class ServerTests
         var all = Body(api.Handle("GET", "/devices", null));
         Assert.Equal(2, all.GetArrayLength());
         var hall = Body(api.Handle("GET", "/devices?group=hall", null));
-        Assert.Single(hall);
+        Assert.Equal(1, hall.GetArrayLength());
         Assert.Equal("thermo", hall[0].GetProperty("id").GetString());
         var lights = Body(api.Handle("GET", "/devices?kind=light", null));
-        Assert.Single(lights);
+        Assert.Equal(1, lights.GetArrayLength());
         var online = Body(api.Handle("GET", "/devices?online=true", null));
         Assert.Equal(2, online.GetArrayLength());
         Assert.Equal(400, api.Handle("GET", "/devices?kind=toaster", null).Status);
@@ -90,7 +90,7 @@ public sealed class ServerTests
         var history = Body(api.Handle("GET", "/devices/lamp/history", null));
         Assert.Equal(2, history.GetArrayLength());
         var limited = Body(api.Handle("GET", "/devices/lamp/history?limit=1", null));
-        Assert.Single(limited);
+        Assert.Equal(1, limited.GetArrayLength());
 
         var bad = api.Handle("PATCH", "/devices/lamp/state", """{"brightness":140}""");
         Assert.Equal(400, bad.Status);
@@ -111,7 +111,7 @@ public sealed class ServerTests
 
         var patched = api.Handle("PATCH", "/devices/thermo/state", """{"temperatureC":27}""");
         var firings = Body(patched).GetProperty("firings");
-        Assert.Single(firings);
+        Assert.Equal(1, firings.GetArrayLength());
         Assert.Equal("hot-fan", firings[0].GetProperty("ruleId").GetString());
         Assert.True(registry.GetOrThrow("fan").State.Power);
     }
@@ -133,7 +133,7 @@ public sealed class ServerTests
         Assert.Equal(400, api.Handle("POST", "/rules",
             """{"id":"bad","name":"Bad","when":"thermo:temperatureC:gt:25","actions":[]}""").Status);
 
-        Assert.Single(Body(api.Handle("GET", "/rules", null)));
+        Assert.Equal(1, Body(api.Handle("GET", "/rules", null)).GetArrayLength());
         var disabled = api.Handle("POST", "/rules/hot/disable", null);
         Assert.Equal(200, disabled.Status);
         Assert.False(Body(disabled).GetProperty("enabled").GetBoolean());
@@ -154,7 +154,7 @@ public sealed class ServerTests
 
         var run = api.Handle("POST", "/run-rules", null);
         Assert.Equal(200, run.Status);
-        Assert.Empty(Body(run).GetProperty("firings"));
+        Assert.Equal(0, Body(run).GetProperty("firings").GetArrayLength());
 
         api.Handle("PATCH", "/devices/thermo/state", """{"temperatureC":26}""");
         Assert.True(registry.GetOrThrow("lamp").State.Power);
