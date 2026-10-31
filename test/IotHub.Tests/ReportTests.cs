@@ -1,4 +1,5 @@
 using Xunit;
+using System.IO;
 using IotHub.Automation;
 using IotHub.Devices;
 using IotHub.Reporting;
@@ -78,5 +79,33 @@ public sealed class ReportTests
         Assert.Equal(0, report.TotalDevices);
         Assert.Null(report.MostChangedDevice);
         Assert.Contains("Devices: 0 total", HubReportFormatter.ToText(report));
+    }
+}
+
+public sealed class CliReportTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "iot-hub-cli-report-" + Guid.NewGuid().ToString("N"));
+    private string Store => Path.Combine(_dir, "hub.json");
+
+    public CliReportTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() { try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ } }
+
+    [Fact]
+    public void Cli_Report_Text_And_Json()
+    {
+        var output = new StringWriter();
+        Assert.Equal(0, HubCli.Run(new[] { "register", "--id", "lamp", "--name", "Lamp", "--kind", "light", "--group", "living-room" }, output, Store));
+        Assert.Equal(0, HubCli.Run(new[] { "set-state", "lamp", "--power", "on" }, output, Store));
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "report" }, output, Store));
+        Assert.Contains("Devices: 1 total, 1 online, 0 offline", output.ToString());
+        Assert.Contains("Group living-room: 1", output.ToString());
+
+        output.GetStringBuilder().Clear();
+        Assert.Equal(0, HubCli.Run(new[] { "report", "--json" }, output, Store));
+        var json = System.Text.Json.JsonDocument.Parse(output.ToString()).RootElement;
+        Assert.Equal(1, json.GetProperty("totalDevices").GetInt32());
+        Assert.Equal(1, json.GetProperty("totalStateChanges").GetInt32());
     }
 }
