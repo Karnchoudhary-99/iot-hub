@@ -12,7 +12,7 @@ automation rules that react to device state, and a control CLI — in C#.
 - [x] Scenes (named multi-device actions, CLI + HTTP)
 - [x] Group control (bulk room patch, CLI + HTTP)
 - [x] Reporting (hub summary, CLI + HTTP)
-- [ ] Self-review checklist, then public
+- [x] Self-review checklist, then public
 
 ## Quick start
 
