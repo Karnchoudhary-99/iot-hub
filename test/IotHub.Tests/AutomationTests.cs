@@ -144,7 +144,7 @@ public sealed class EngineTests
     public void RuleAction_Parse_Rejects_Empty_And_Out_Of_Range_Patches()
     {
         Assert.Throws<ArgumentException>(() => RuleAction.Parse("plug:"));
-        Assert.Throws<ArgumentException>(() => RuleAction.Parse("plug:brightness=500"));
+        Assert.ThrowsAny<ArgumentException>(() => RuleAction.Parse("plug:brightness=500")); // ArgumentOutOfRangeException from range validation
         Assert.Throws<ArgumentException>(() => RuleAction.Parse("plug:colour=red"));
     }
 }
@@ -191,8 +191,10 @@ public sealed class RuleStoreTests : IDisposable
             Actions = new List<RuleAction> { RuleAction.Parse("plug:power=on") },
         };
         // Save bypasses the duplicate check (it validates single rules), so
-        // write the duplicated file directly to test the load path.
-        File.WriteAllText(RulesPath, System.Text.Json.JsonSerializer.Serialize(new[] { rule, rule }));
+        // write the duplicated file directly to test the load path, using
+        // the store's own camelCase naming so the file round-trips.
+        var options = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+        File.WriteAllText(RulesPath, System.Text.Json.JsonSerializer.Serialize(new[] { rule, rule }, options));
         Assert.Throws<InvalidOperationException>(() => JsonRuleStore.Load(RulesPath));
     }
 
