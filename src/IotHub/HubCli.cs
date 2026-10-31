@@ -1,5 +1,6 @@
 using IotHub.Automation;
 using IotHub.Devices;
+using IotHub.Reporting;
 using IotHub.Scenes;
 
 namespace IotHub;
@@ -46,6 +47,7 @@ public static class HubCli
                 "scene-remove" => SceneRemove(args, output, storePath),
                 "scene-apply" => SceneApply(args, output, storePath),
                 "group-set" => GroupSet(args, output, storePath),
+                "report" => Report(args, output, storePath),
                 "serve" => Server.HubServer.Run(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
@@ -315,6 +317,36 @@ public static class HubCli
         return 0;
     }
 
+    // -- reporting -------------------------------------------------------
+
+    private static int Report(string[] args, TextWriter output, string storePath)
+    {
+        var (_, flags) = Parse(args, 1);
+        var staleMinutes = flags.TryGetValue("stale-minutes", out var m)
+            ? double.Parse(m, System.Globalization.CultureInfo.InvariantCulture)
+            : 60;
+        var registry = JsonRegistryStore.Load(storePath);
+        var report = HubReport.Build(
+            registry,
+            JsonRuleStore.Load(JsonRuleStore.RulesPathFor(storePath)),
+            JsonSceneStore.Load(JsonSceneStore.ScenesPathFor(storePath)),
+            TimeSpan.FromMinutes(staleMinutes)).WithHistory(registry);
+        if (flags.ContainsKey("json"))
+        {
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            };
+            output.WriteLine(System.Text.Json.JsonSerializer.Serialize(report, options));
+        }
+        else
+        {
+            output.Write(Reporting.HubReportFormatter.ToText(report));
+        }
+        return 0;
+    }
+
     // -- scenes ----------------------------------------------------------
 
     private static int SceneAdd(string[] args, TextWriter output, string storePath)
@@ -467,6 +499,7 @@ public static class HubCli
         output.WriteLine("  scene-add --id ID --name NAME --step TARGET:FIELD=VALUE [--step ...]");
         output.WriteLine("  scenes | scene-remove <scene-id> | scene-apply <scene-id>");
         output.WriteLine("  group-set <group> [--power on|off] [--brightness N] [--temperature X] [--humidity X] [--locked locked|unlocked] [--reading TEXT]");
+        output.WriteLine("  report [--json] [--stale-minutes N]  (default stale window 60)");
         output.WriteLine("  serve [--port N]  (HTTP API on http://localhost:N/, default 8080)");
     }
 }
