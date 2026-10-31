@@ -32,6 +32,7 @@ public static class HubCli
                 "history" => History(args, output, storePath),
                 "online" => SetOnline(args, output, storePath, true),
                 "offline" => SetOnline(args, output, storePath, false),
+                "sweep" => Sweep(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
         }
@@ -153,6 +154,20 @@ public static class HubCli
         return 0;
     }
 
+    private static int Sweep(string[] args, TextWriter output, string storePath)
+    {
+        var (_, flags) = Parse(args, 1);
+        var minutes = flags.TryGetValue("max-age-minutes", out var m)
+            ? double.Parse(m, System.Globalization.CultureInfo.InvariantCulture)
+            : 60;
+        var registry = JsonRegistryStore.Load(storePath);
+        var flipped = registry.MarkStale(TimeSpan.FromMinutes(minutes));
+        JsonRegistryStore.Save(registry, storePath);
+        if (flipped.Count == 0) output.WriteLine("No stale devices.");
+        foreach (var d in flipped) output.WriteLine($"Marked offline (stale): {d.Id}");
+        return 0;
+    }
+
     // -- parsing helpers -------------------------------------------------
 
     private static (List<string> Positional, Dictionary<string, string> Flags) Parse(string[] args, int start)
@@ -203,5 +218,6 @@ public static class HubCli
         output.WriteLine("  groups");
         output.WriteLine("  history <id> [--limit N]");
         output.WriteLine("  online <id> | offline <id>");
+        output.WriteLine("  sweep [--max-age-minutes N]  (default 60)");
     }
 }

@@ -117,6 +117,23 @@ public sealed class DeviceRegistry
         }
     }
 
+    /// <summary>
+    /// Marks every online device not heard from within <paramref name="maxAge"/> as
+    /// offline (a device that stops reporting is not "online" just because nobody
+    /// told the hub). Returns the devices that flipped. Already-offline devices
+    /// are untouched.
+    /// </summary>
+    public IReadOnlyList<Device> MarkStale(TimeSpan maxAge)
+    {
+        var cutoff = DateTimeOffset.UtcNow - maxAge;
+        lock (_gate)
+        {
+            var flipped = _devices.Values.Where(d => d.IsOnline && d.LastSeenUtc < cutoff).ToList();
+            foreach (var d in flipped) d.IsOnline = false;
+            return flipped;
+        }
+    }
+
     /// <summary>Newest-first history for one device, capped at <paramref name="limit"/> (0 = all).</summary>
     public IReadOnlyList<StateChange> History(string id, int limit = 0)
     {
