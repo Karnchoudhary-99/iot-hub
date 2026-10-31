@@ -24,7 +24,7 @@ public static class JsonRegistryStore
     public static void Save(DeviceRegistry registry, string path)
     {
         ArgumentNullException.ThrowIfNull(registry);
-        var snapshot = new Snapshot(registry.List(), registry.AllHistory().Reverse().ToList());
+        var snapshot = new Snapshot(registry.List().ToList(), registry.AllHistory().Reverse().ToList());
         var json = JsonSerializer.Serialize(snapshot, Options);
         var dir = Path.GetDirectoryName(Path.GetFullPath(path));
         Directory.CreateDirectory(dir!);

@@ -1,3 +1,4 @@
+using Xunit;
 using IotHub.Devices;
 
 namespace IotHub.Tests;

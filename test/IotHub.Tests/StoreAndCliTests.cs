@@ -1,3 +1,4 @@
+using Xunit;
 using System.IO;
 using IotHub.Devices;
 

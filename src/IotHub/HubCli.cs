@@ -62,9 +62,12 @@ public static class HubCli
     {
         var (_, flags) = Parse(args, 1);
         DeviceKind? kind = null;
-        if (flags.TryGetValue("kind", out var kindText) &&
-            !Enum.TryParse<DeviceKind>(kindText, ignoreCase: true, out kind))
-            return UsageError(output, $"Unknown kind '{kindText}'.");
+        if (flags.TryGetValue("kind", out var kindText))
+        {
+            if (!Enum.TryParse<DeviceKind>(kindText, ignoreCase: true, out var parsed))
+                return UsageError(output, $"Unknown kind '{kindText}'.");
+            kind = parsed;
+        }
         var registry = JsonRegistryStore.Load(storePath);
         var devices = registry.List(flags.GetValueOrDefault("group"), kind, flags.ContainsKey("online"));
         if (devices.Count == 0) output.WriteLine("No devices registered.");
