@@ -86,3 +86,22 @@ public sealed class RegistryTests
         Assert.Single(registry.History("lamp"));
     }
 }
+
+public sealed class StaleTests
+{
+    [Fact]
+    public void MarkStale_Flips_Only_Silent_Online_Devices()
+    {
+        var registry = new DeviceRegistry();
+        var silent = new Device { Id = "silent", Name = "Silent", Kind = DeviceKind.Sensor, Group = "hall", LastSeenUtc = DateTimeOffset.UtcNow.AddHours(-2) };
+        var fresh = new Device { Id = "fresh", Name = "Fresh", Kind = DeviceKind.Sensor, Group = "hall" };
+        var alreadyOff = new Device { Id = "off", Name = "Off", Kind = DeviceKind.Sensor, Group = "hall", IsOnline = false, LastSeenUtc = DateTimeOffset.UtcNow.AddHours(-5) };
+        registry.Register(silent);
+        registry.Register(fresh);
+        registry.Register(alreadyOff);
+        var flipped = registry.MarkStale(TimeSpan.FromHours(1));
+        Assert.Equal(new[] { "silent" }, flipped.Select(d => d.Id));
+        Assert.False(registry.GetOrThrow("silent").IsOnline);
+        Assert.True(registry.GetOrThrow("fresh").IsOnline);
+    }
+}
