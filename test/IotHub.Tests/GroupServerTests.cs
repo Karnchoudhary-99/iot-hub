@@ -30,7 +30,7 @@ public sealed class GroupServerTests
         var response = api.Handle("PATCH", "/groups/living-room/state", """{"power":false}""");
         Assert.Equal(200, response.Status);
         var body = Body(response);
-        Assert.Contains("lamp1.power=false", body.GetProperty("applied").EnumerateArray().Select(e => e.GetString()));
+        Assert.Contains("lamp1.power=off", body.GetProperty("applied").EnumerateArray().Select(e => e.GetString()));
         Assert.Contains("lamp2: offline", body.GetProperty("skipped").EnumerateArray().Select(e => e.GetString()));
         Assert.False(registry.GetOrThrow("lamp1").State.Power);
         Assert.True(registry.GetOrThrow("lamp2").State.Power ?? false);
