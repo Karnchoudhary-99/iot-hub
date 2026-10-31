@@ -1,5 +1,6 @@
 using IotHub.Automation;
 using IotHub.Devices;
+using IotHub.Reporting;
 using IotHub.Scenes;
 
 namespace IotHub;
@@ -46,6 +47,7 @@ public static class HubCli
                 "scene-remove" => SceneRemove(args, output, storePath),
                 "scene-apply" => SceneApply(args, output, storePath),
                 "group-set" => GroupSet(args, output, storePath),
+                "report" => Report(args, output, storePath),
                 "serve" => Server.HubServer.Run(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
@@ -315,6 +317,46 @@ public static class HubCli
         return 0;
     }
 
+    // -- reporting -------------------------------------------------------
+
+    private static int Report(string[] args, TextWriter output, string storePath)
+    {
+        // --json is a value-less flag, so scan here instead of using Parse
+        // (which requires a value after every flag).
+        var json = false;
+        var staleMinutes = 60.0;
+        for (var i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--json") json = true;
+            else if (args[i] == "--stale-minutes" && i + 1 < args.Length)
+                staleMinutes = double.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
+            else if (args[i].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException($"Unknown or value-less flag '{args[i]}'. Usage: report [--json] [--stale-minutes N].");
+            else
+                return UsageError(output, "Usage: report [--json] [--stale-minutes N]");
+        }
+        var registry = JsonRegistryStore.Load(storePath);
+        var report = HubReport.Build(
+            registry,
+            JsonRuleStore.Load(JsonRuleStore.RulesPathFor(storePath)),
+            JsonSceneStore.Load(JsonSceneStore.ScenesPathFor(storePath)),
+            TimeSpan.FromMinutes(staleMinutes)).WithHistory(registry);
+        if (json)
+        {
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            };
+            output.WriteLine(System.Text.Json.JsonSerializer.Serialize(report, options));
+        }
+        else
+        {
+            output.Write(Reporting.HubReportFormatter.ToText(report));
+        }
+        return 0;
+    }
+
     // -- scenes ----------------------------------------------------------
 
     private static int SceneAdd(string[] args, TextWriter output, string storePath)
@@ -467,6 +509,7 @@ public static class HubCli
         output.WriteLine("  scene-add --id ID --name NAME --step TARGET:FIELD=VALUE [--step ...]");
         output.WriteLine("  scenes | scene-remove <scene-id> | scene-apply <scene-id>");
         output.WriteLine("  group-set <group> [--power on|off] [--brightness N] [--temperature X] [--humidity X] [--locked locked|unlocked] [--reading TEXT]");
+        output.WriteLine("  report [--json] [--stale-minutes N]  (default stale window 60)");
         output.WriteLine("  serve [--port N]  (HTTP API on http://localhost:N/, default 8080)");
     }
 }

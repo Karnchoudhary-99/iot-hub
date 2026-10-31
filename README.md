@@ -11,6 +11,7 @@ automation rules that react to device state, and a control CLI — in C#.
 - [x] Control CLI + hub server
 - [x] Scenes (named multi-device actions, CLI + HTTP)
 - [x] Group control (bulk room patch, CLI + HTTP)
+- [x] Reporting (hub summary, CLI + HTTP)
 - [ ] Self-review checklist, then public
 
 ## Quick start
@@ -127,6 +128,23 @@ state body (`{"power":false}`), returning `{group, applied, skipped}`.
 
 Try it: `sh examples/group-demo.sh`.
 
+## Reporting
+
+The `report` command summarises the whole hub at a glance: device
+totals and online/offline counts, counts by room and by kind, rule and
+scene totals, total recorded state changes with the most active device,
+and devices that are online but silent beyond the stale window
+(default 60 minutes, `--stale-minutes N` to change it).
+
+```sh
+dotnet run --project src/IotHub -- report
+dotnet run --project src/IotHub -- report --json
+```
+
+Also available over HTTP: `GET /report` (same shape as the JSON output).
+
+Try it: `sh examples/report-demo.sh`.
+
 ## Hub server
 
 The same registry and rules are available over HTTP. Start the server
@@ -160,6 +178,7 @@ curl -X PATCH http://localhost:8080/devices/lamp/state \
 | DELETE | `/scenes/{id}` | |
 | POST | `/scenes/{id}/apply` | Returns `{sceneId, applied, skipped}` |
 | PATCH | `/groups/{group}/state` | Bulk patch for one room; returns `{group, applied, skipped}` |
+| GET | `/report` | Hub summary: counts, activity, stale devices |
 
 Errors are JSON `{"error": "..."}` with 400 (bad input), 404
 (unknown id or route), 405 (wrong method) or 409 (duplicate id).

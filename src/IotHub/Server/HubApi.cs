@@ -72,6 +72,7 @@ public sealed class HubApi
                 ("POST", ["rules", var id, "enable"]) => SetRuleEnabled(id, true),
                 ("POST", ["rules", var id, "disable"]) => SetRuleEnabled(id, false),
                 ("POST", ["run-rules"]) => RunRules(),
+                ("GET", ["report"]) => Ok(Reporting.HubReport.Build(_registry, _rules, _scenes, TimeSpan.FromMinutes(60)).WithHistory(_registry)),
                 ("GET", ["scenes"]) => Ok(_scenes.Select(SceneDto).ToList()),
                 ("POST", ["scenes"]) => CreateScene(body),
                 ("DELETE", ["scenes", var id]) => DeleteScene(id),
@@ -80,6 +81,7 @@ public sealed class HubApi
                     or (_, ["groups"]) or (_, ["groups", _, _])
                     or (_, ["rules"]) or (_, ["rules", _, _])
                     or (_, ["scenes"]) or (_, ["scenes", _, _])
+                    or (_, ["report"])
                     or (_, ["run-rules"]) => Status(405, new { error = $"Method {method} is not allowed on {path}." }),
                 _ => Status(404, new { error = $"No route for {method} {path}." }),
             };
