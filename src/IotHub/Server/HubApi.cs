@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using IotHub.Automation;
 using IotHub.Devices;
+using IotHub.Scenes;
 
 namespace IotHub.Server;
 
@@ -31,12 +32,14 @@ public sealed class HubApi
 
     private readonly DeviceRegistry _registry;
     private readonly List<AutomationRule> _rules;
+    private readonly List<Scene> _scenes;
     private readonly Action? _persist;
 
-    public HubApi(DeviceRegistry registry, List<AutomationRule> rules, Action? persist = null)
+    public HubApi(DeviceRegistry registry, List<AutomationRule> rules, Action? persist = null, List<Scene>? scenes = null)
     {
         _registry = registry;
         _rules = rules;
+        _scenes = scenes ?? new List<Scene>();
         _persist = persist;
     }
 
@@ -68,8 +71,13 @@ public sealed class HubApi
                 ("POST", ["rules", var id, "enable"]) => SetRuleEnabled(id, true),
                 ("POST", ["rules", var id, "disable"]) => SetRuleEnabled(id, false),
                 ("POST", ["run-rules"]) => RunRules(),
+                ("GET", ["scenes"]) => Ok(_scenes.Select(SceneDto).ToList()),
+                ("POST", ["scenes"]) => CreateScene(body),
+                ("DELETE", ["scenes", var id]) => DeleteScene(id),
+                ("POST", ["scenes", var id, "apply"]) => ApplyScene(id),
                 (_, ["health"]) or (_, ["devices"]) or (_, ["devices", _, _])
                     or (_, ["groups"]) or (_, ["rules"]) or (_, ["rules", _, _])
+                    or (_, ["scenes"]) or (_, ["scenes", _, _])
                     or (_, ["run-rules"]) => Status(405, new { error = $"Method {method} is not allowed on {path}." }),
                 _ => Status(404, new { error = $"No route for {method} {path}." }),
             };
@@ -226,6 +234,54 @@ public sealed class HubApi
         _persist?.Invoke();
         return Ok(new { firings = firings.Select(FiringDto).ToList() });
     }
+
+    // -- scenes ----------------------------------------------------------
+
+    private ApiResponse CreateScene(string? body)
+    {
+        var doc = RequireObject(body);
+        var scene = new Scene
+        {
+            Id = RequireString(doc, "id"),
+            Name = RequireString(doc, "name"),
+        };
+        if (!doc.TryGetProperty("steps", out var stepsEl) || stepsEl.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException("Field 'steps' must be an array of targetId:field=value strings.");
+        foreach (var stepEl in stepsEl.EnumerateArray())
+            scene.Steps.Add(RuleAction.Parse(stepEl.GetString()
+                ?? throw new ArgumentException("Each step must be a string.")));
+        scene.Validate();
+        if (_scenes.Any(s => s.Id == scene.Id))
+            throw new InvalidOperationException($"A scene with id '{scene.Id}' already exists.");
+        foreach (var step in scene.Steps) _ = _registry.GetOrThrow(step.TargetDeviceId);
+        _scenes.Add(scene);
+        _persist?.Invoke();
+        return Status(201, SceneDto(scene));
+    }
+
+    private ApiResponse DeleteScene(string id)
+    {
+        if (_scenes.RemoveAll(s => s.Id == id) == 0)
+            throw new KeyNotFoundException($"No scene with id '{id}'.");
+        _persist?.Invoke();
+        return Status(200, new { removed = id });
+    }
+
+    private ApiResponse ApplyScene(string id)
+    {
+        var scene = _scenes.FirstOrDefault(s => s.Id == id)
+            ?? throw new KeyNotFoundException($"No scene with id '{id}'.");
+        var result = SceneApplier.Apply(_registry, scene);
+        _persist?.Invoke();
+        return Ok(new { sceneId = result.SceneId, applied = result.Applied, skipped = result.Skipped });
+    }
+
+    private static object SceneDto(Scene s) => new
+    {
+        s.Id,
+        s.Name,
+        steps = s.Steps.Select(a => a.ToString()).ToList(),
+    };
 
     // -- DTOs and parsing ------------------------------------------------
 

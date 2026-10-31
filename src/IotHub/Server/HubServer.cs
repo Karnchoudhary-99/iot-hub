@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using IotHub.Automation;
 using IotHub.Devices;
+using IotHub.Scenes;
 
 namespace IotHub.Server;
 
@@ -32,11 +33,14 @@ public static class HubServer
         var registry = JsonRegistryStore.Load(storePath);
         var rulesPath = JsonRuleStore.RulesPathFor(storePath);
         var rules = JsonRuleStore.Load(rulesPath);
+        var scenesPath = JsonSceneStore.ScenesPathFor(storePath);
+        var scenes = JsonSceneStore.Load(scenesPath);
         var api = new HubApi(registry, rules, () =>
         {
             JsonRegistryStore.Save(registry, storePath);
             JsonRuleStore.Save(rules, rulesPath);
-        });
+            JsonSceneStore.Save(scenes, scenesPath);
+        }, scenes);
 
         var listener = new HttpListener();
         listener.Prefixes.Add($"http://localhost:{port}/");
