@@ -18,7 +18,7 @@ public static class HubReportFormatter
         foreach (var (kind, count) in report.DevicesByKind)
             text.AppendLine($"  Kind {kind}: {count}");
         if (report.RulesTotal > 0 || report.ScenesTotal > 0)
-            text.AppendLine($"  Automation: {report.RulesTotal} rules ({report.RulesEnabled} enabled), {report.ScenesTotal} scenes");
+            text.AppendLine($"  Automation: {report.RulesTotal} rule(s) ({report.RulesEnabled} enabled), {report.ScenesTotal} scene(s)");
         if (report.TotalStateChanges > 0)
         {
             text.AppendLine($"  State changes recorded: {report.TotalStateChanges}");
