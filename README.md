@@ -39,7 +39,9 @@ never corrupts the registry.
 Commands: `register`, `list [--group G] [--kind K] [--online]`, `show <id>`,
 `set-state <id> [--power on|off] [--brightness N] [--temperature X]
 [--humidity X] [--locked locked|unlocked] [--reading TEXT]`, `remove <id>`,
-`groups`, `history <id> [--limit N]`, `online <id>` / `offline <id>`.
+`groups`, `history <id> [--limit N]`, `online <id>` / `offline <id>`,
+`sweep [--max-age-minutes N]` (marks devices silent longer than N minutes
+offline; default 60).
 Exit codes: 0 ok, 1 runtime error (unknown device, duplicate id, bad value),
 2 usage error.
 
