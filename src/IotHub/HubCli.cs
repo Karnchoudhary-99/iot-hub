@@ -109,13 +109,7 @@ public static class HubCli
     {
         var (pos, flags) = Parse(args, 1);
         if (pos.Count != 1) return UsageError(output, "Usage: set-state <device-id> [--power on|off] [--brightness n] [--temperature x] [--humidity x] [--locked locked|unlocked] [--reading text]");
-        var patch = new DeviceState();
-        if (flags.TryGetValue("power", out var power)) patch.Power = ParseOnOff(power, "power");
-        if (flags.TryGetValue("brightness", out var b)) patch.Brightness = int.Parse(b, System.Globalization.CultureInfo.InvariantCulture);
-        if (flags.TryGetValue("temperature", out var t)) patch.TemperatureC = double.Parse(t, System.Globalization.CultureInfo.InvariantCulture);
-        if (flags.TryGetValue("humidity", out var h)) patch.HumidityPct = double.Parse(h, System.Globalization.CultureInfo.InvariantCulture);
-        if (flags.TryGetValue("locked", out var l)) patch.Locked = l switch { "locked" => true, "unlocked" => false, _ => throw new ArgumentException("Use --locked locked|unlocked.") };
-        if (flags.TryGetValue("reading", out var r)) patch.Reading = r;
+        var patch = ParseStatePatch(flags);
         var registry = JsonRegistryStore.Load(storePath);
         var changes = registry.UpdateState(pos[0], patch);
         JsonRegistryStore.Save(registry, storePath);
@@ -384,6 +378,22 @@ public static class HubCli
     }
 
     // -- parsing helpers -------------------------------------------------
+
+    /// <summary>Builds a partial state patch from set-state-style flags, so
+    /// set-state and group-set share one parser and one set of error
+    /// messages. Throws on an unknown value; an empty patch is allowed here
+    /// and reported by the caller (a no-op patch changes nothing).</summary>
+    private static DeviceState ParseStatePatch(Dictionary<string, string> flags)
+    {
+        var patch = new DeviceState();
+        if (flags.TryGetValue("power", out var power)) patch.Power = ParseOnOff(power, "power");
+        if (flags.TryGetValue("brightness", out var b)) patch.Brightness = int.Parse(b, System.Globalization.CultureInfo.InvariantCulture);
+        if (flags.TryGetValue("temperature", out var t)) patch.TemperatureC = double.Parse(t, System.Globalization.CultureInfo.InvariantCulture);
+        if (flags.TryGetValue("humidity", out var h)) patch.HumidityPct = double.Parse(h, System.Globalization.CultureInfo.InvariantCulture);
+        if (flags.TryGetValue("locked", out var l)) patch.Locked = l switch { "locked" => true, "unlocked" => false, _ => throw new ArgumentException("Use --locked locked|unlocked.") };
+        if (flags.TryGetValue("reading", out var r)) patch.Reading = r;
+        return patch;
+    }
 
     private static (List<string> Positional, Dictionary<string, string> Flags) Parse(string[] args, int start)
     {
