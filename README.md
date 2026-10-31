@@ -9,6 +9,7 @@ automation rules that react to device state, and a control CLI — in C#.
 - [x] Device registry (register, group, state tracking)
 - [x] Automation rules (triggers, conditions, actions)
 - [x] Control CLI + hub server
+- [x] Scenes (named multi-device actions, CLI + HTTP)
 - [ ] Self-review checklist, then public
 
 ## Quick start
@@ -87,6 +88,27 @@ Commands: `rule-add`, `rules`, `rule-remove <id>`,
 
 Try it: `sh examples/rules-demo.sh` (uses a throwaway store).
 
+## Scenes
+
+A scene bundles several state changes into one named action — apply
+"goodnight" and the hub switches the lights off and locks the doors in a
+single step. Steps use the same `TARGET:FIELD=VALUE` shape as rule
+actions, and applying a scene skips unknown or offline targets instead of
+failing the whole scene (an offline lamp does not stop the door locking).
+
+```sh
+dotnet run --project src/IotHub -- scene-add --id goodnight --name "Goodnight" \
+  --step living-room-lamp:power=off --step front-door:locked=locked
+dotnet run --project src/IotHub -- scene-apply goodnight
+dotnet run --project src/IotHub -- scenes
+```
+
+Scenes live in a sidecar file next to the store (`iot-hub.json` →
+`iot-hub.scenes.json`) and are also available over HTTP (`GET /scenes`,
+`POST /scenes`, `DELETE /scenes/{id}`, `POST /scenes/{id}/apply`).
+
+Try it: `sh examples/scenes-demo.sh`.
+
 ## Hub server
 
 The same registry and rules are available over HTTP. Start the server
@@ -116,6 +138,9 @@ curl -X PATCH http://localhost:8080/devices/lamp/state \
 | DELETE | `/rules/{id}` | |
 | POST | `/rules/{id}/enable`, `/disable` | |
 | POST | `/run-rules` | Returns `{firings}` |
+| GET / POST | `/scenes` | `{id, name, steps[]}` |
+| DELETE | `/scenes/{id}` | |
+| POST | `/scenes/{id}/apply` | Returns `{sceneId, applied, skipped}` |
 
 Errors are JSON `{"error": "..."}` with 400 (bad input), 404
 (unknown id or route), 405 (wrong method) or 409 (duplicate id).
