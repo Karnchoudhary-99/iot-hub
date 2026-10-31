@@ -45,6 +45,7 @@ public static class HubCli
                 "scenes" => Scenes(output, storePath),
                 "scene-remove" => SceneRemove(args, output, storePath),
                 "scene-apply" => SceneApply(args, output, storePath),
+                "group-set" => GroupSet(args, output, storePath),
                 "serve" => Server.HubServer.Run(args, output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
@@ -109,13 +110,7 @@ public static class HubCli
     {
         var (pos, flags) = Parse(args, 1);
         if (pos.Count != 1) return UsageError(output, "Usage: set-state <device-id> [--power on|off] [--brightness n] [--temperature x] [--humidity x] [--locked locked|unlocked] [--reading text]");
-        var patch = new DeviceState();
-        if (flags.TryGetValue("power", out var power)) patch.Power = ParseOnOff(power, "power");
-        if (flags.TryGetValue("brightness", out var b)) patch.Brightness = int.Parse(b, System.Globalization.CultureInfo.InvariantCulture);
-        if (flags.TryGetValue("temperature", out var t)) patch.TemperatureC = double.Parse(t, System.Globalization.CultureInfo.InvariantCulture);
-        if (flags.TryGetValue("humidity", out var h)) patch.HumidityPct = double.Parse(h, System.Globalization.CultureInfo.InvariantCulture);
-        if (flags.TryGetValue("locked", out var l)) patch.Locked = l switch { "locked" => true, "unlocked" => false, _ => throw new ArgumentException("Use --locked locked|unlocked.") };
-        if (flags.TryGetValue("reading", out var r)) patch.Reading = r;
+        var patch = ParseStatePatch(flags);
         var registry = JsonRegistryStore.Load(storePath);
         var changes = registry.UpdateState(pos[0], patch);
         JsonRegistryStore.Save(registry, storePath);
@@ -304,6 +299,22 @@ public static class HubCli
         return firings;
     }
 
+    // -- group control ---------------------------------------------------
+
+    private static int GroupSet(string[] args, TextWriter output, string storePath)
+    {
+        var (pos, flags) = Parse(args, 1);
+        if (pos.Count != 1) return UsageError(output, "Usage: group-set <group> [--power on|off] [--brightness n] [--temperature x] [--humidity x] [--locked locked|unlocked] [--reading text]");
+        var patch = ParseStatePatch(flags);
+        var registry = JsonRegistryStore.Load(storePath);
+        var result = GroupControl.ApplyToGroup(registry, pos[0], patch);
+        JsonRegistryStore.Save(registry, storePath);
+        output.WriteLine($"Group updated: {result.Group}");
+        foreach (var a in result.Applied) output.WriteLine($"  applied: {a}");
+        foreach (var s in result.Skipped) output.WriteLine($"  skipped: {s}");
+        return 0;
+    }
+
     // -- scenes ----------------------------------------------------------
 
     private static int SceneAdd(string[] args, TextWriter output, string storePath)
@@ -385,6 +396,22 @@ public static class HubCli
 
     // -- parsing helpers -------------------------------------------------
 
+    /// <summary>Builds a partial state patch from set-state-style flags, so
+    /// set-state and group-set share one parser and one set of error
+    /// messages. Throws on an unknown value; an empty patch is allowed here
+    /// and reported by the caller (a no-op patch changes nothing).</summary>
+    private static DeviceState ParseStatePatch(Dictionary<string, string> flags)
+    {
+        var patch = new DeviceState();
+        if (flags.TryGetValue("power", out var power)) patch.Power = ParseOnOff(power, "power");
+        if (flags.TryGetValue("brightness", out var b)) patch.Brightness = int.Parse(b, System.Globalization.CultureInfo.InvariantCulture);
+        if (flags.TryGetValue("temperature", out var t)) patch.TemperatureC = double.Parse(t, System.Globalization.CultureInfo.InvariantCulture);
+        if (flags.TryGetValue("humidity", out var h)) patch.HumidityPct = double.Parse(h, System.Globalization.CultureInfo.InvariantCulture);
+        if (flags.TryGetValue("locked", out var l)) patch.Locked = l switch { "locked" => true, "unlocked" => false, _ => throw new ArgumentException("Use --locked locked|unlocked.") };
+        if (flags.TryGetValue("reading", out var r)) patch.Reading = r;
+        return patch;
+    }
+
     private static (List<string> Positional, Dictionary<string, string> Flags) Parse(string[] args, int start)
     {
         var pos = new List<string>();
@@ -439,6 +466,7 @@ public static class HubCli
         output.WriteLine("  run-rules  (rules also evaluate automatically after every set-state)");
         output.WriteLine("  scene-add --id ID --name NAME --step TARGET:FIELD=VALUE [--step ...]");
         output.WriteLine("  scenes | scene-remove <scene-id> | scene-apply <scene-id>");
+        output.WriteLine("  group-set <group> [--power on|off] [--brightness N] [--temperature X] [--humidity X] [--locked locked|unlocked] [--reading TEXT]");
         output.WriteLine("  serve [--port N]  (HTTP API on http://localhost:N/, default 8080)");
     }
 }

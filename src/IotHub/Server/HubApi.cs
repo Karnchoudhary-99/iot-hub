@@ -65,6 +65,7 @@ public sealed class HubApi
                 ("POST", ["devices", var id, "offline"]) => SetOnline(id, false),
                 ("GET", ["devices", var id, "history"]) => Ok(History(id, query)),
                 ("GET", ["groups"]) => Ok(new { groups = _registry.Groups() }),
+                ("PATCH", ["groups", var group, "state"]) => PatchGroupState(group, body),
                 ("GET", ["rules"]) => Ok(_rules.Select(RuleDto).ToList()),
                 ("POST", ["rules"]) => CreateRule(body),
                 ("DELETE", ["rules", var id]) => DeleteRule(id),
@@ -76,7 +77,8 @@ public sealed class HubApi
                 ("DELETE", ["scenes", var id]) => DeleteScene(id),
                 ("POST", ["scenes", var id, "apply"]) => ApplyScene(id),
                 (_, ["health"]) or (_, ["devices"]) or (_, ["devices", _, _])
-                    or (_, ["groups"]) or (_, ["rules"]) or (_, ["rules", _, _])
+                    or (_, ["groups"]) or (_, ["groups", _, _])
+                    or (_, ["rules"]) or (_, ["rules", _, _])
                     or (_, ["scenes"]) or (_, ["scenes", _, _])
                     or (_, ["run-rules"]) => Status(405, new { error = $"Method {method} is not allowed on {path}." }),
                 _ => Status(404, new { error = $"No route for {method} {path}." }),
@@ -167,6 +169,14 @@ public sealed class HubApi
         _registry.SetOnline(id, online);
         _persist?.Invoke();
         return Ok(DeviceDto(_registry.GetOrThrow(id)));
+    }
+
+    private ApiResponse PatchGroupState(string group, string? body)
+    {
+        var patch = ParseStatePatch(RequireObject(body));
+        var result = GroupControl.ApplyToGroup(_registry, group, patch);
+        _persist?.Invoke();
+        return Ok(new { group = result.Group, applied = result.Applied, skipped = result.Skipped });
     }
 
     private object History(string id, Dictionary<string, string> query)
