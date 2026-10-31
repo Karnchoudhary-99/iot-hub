@@ -321,17 +321,27 @@ public static class HubCli
 
     private static int Report(string[] args, TextWriter output, string storePath)
     {
-        var (_, flags) = Parse(args, 1);
-        var staleMinutes = flags.TryGetValue("stale-minutes", out var m)
-            ? double.Parse(m, System.Globalization.CultureInfo.InvariantCulture)
-            : 60;
+        // --json is a value-less flag, so scan here instead of using Parse
+        // (which requires a value after every flag).
+        var json = false;
+        var staleMinutes = 60.0;
+        for (var i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--json") json = true;
+            else if (args[i] == "--stale-minutes" && i + 1 < args.Length)
+                staleMinutes = double.Parse(args[++i], System.Globalization.CultureInfo.InvariantCulture);
+            else if (args[i].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException($"Unknown or value-less flag '{args[i]}'. Usage: report [--json] [--stale-minutes N].");
+            else
+                return UsageError(output, "Usage: report [--json] [--stale-minutes N]");
+        }
         var registry = JsonRegistryStore.Load(storePath);
         var report = HubReport.Build(
             registry,
             JsonRuleStore.Load(JsonRuleStore.RulesPathFor(storePath)),
             JsonSceneStore.Load(JsonSceneStore.ScenesPathFor(storePath)),
             TimeSpan.FromMinutes(staleMinutes)).WithHistory(registry);
-        if (flags.ContainsKey("json"))
+        if (json)
         {
             var options = new System.Text.Json.JsonSerializerOptions
             {
