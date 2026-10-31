@@ -1,3 +1,4 @@
+using IotHub.Automation;
 using IotHub.Devices;
 
 namespace IotHub;
@@ -33,10 +34,16 @@ public static class HubCli
                 "online" => SetOnline(args, output, storePath, true),
                 "offline" => SetOnline(args, output, storePath, false),
                 "sweep" => Sweep(args, output, storePath),
+                "rule-add" => RuleAdd(args, output, storePath),
+                "rules" => Rules(output, storePath),
+                "rule-remove" => RuleRemove(args, output, storePath),
+                "rule-enable" => RuleSetEnabled(args, output, storePath, true),
+                "rule-disable" => RuleSetEnabled(args, output, storePath, false),
+                "run-rules" => RunRules(output, storePath),
                 _ => UsageError(output, $"Unknown command '{args[0]}'."),
             };
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException or System.Text.Json.JsonException)
         {
             output.WriteLine($"Error: {ex.Message}");
             return 1;
@@ -108,6 +115,13 @@ public static class HubCli
         JsonRegistryStore.Save(registry, storePath);
         if (changes.Count == 0) output.WriteLine("No state changed.");
         foreach (var c in changes) output.WriteLine(c);
+        // A state change may satisfy a rule: evaluate immediately so the hub
+        // reacts without waiting for an explicit run-rules. A broken rules
+        // file must not turn a successful set-state into a failure — the
+        // explicit run-rules command surfaces that error instead.
+        try { EvaluateRules(registry, storePath, output, quietWhenNone: true); }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.Text.Json.JsonException)
+        { output.WriteLine($"Warning: automation evaluation skipped: {ex.Message}"); }
         return 0;
     }
 
@@ -168,6 +182,122 @@ public static class HubCli
         return 0;
     }
 
+    // -- automation rules ------------------------------------------------
+
+    private static int RuleAdd(string[] args, TextWriter output, string storePath)
+    {
+        // --action may repeat, so scan here instead of using Parse (which keeps
+        // only the last value per flag). --disabled is a value-less flag.
+        var flags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var actions = new List<string>();
+        for (var i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--disabled") { flags["disabled"] = "true"; continue; }
+            if (args[i].StartsWith("--", StringComparison.Ordinal) && i + 1 < args.Length)
+            {
+                if (args[i] == "--action") actions.Add(args[++i]);
+                else flags[args[i][2..]] = args[++i];
+            }
+            else if (args[i].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException($"Flag '{args[i]}' needs a value.");
+            else
+                return UsageError(output, "Usage: rule-add --id ID --name NAME --when DEVICE:FIELD:OP:VALUE --action TARGET:FIELD=VALUE [--action ...] [--cooldown N] [--disabled]");
+        }
+        var id = Required(flags, "id");
+        var name = Required(flags, "name");
+        var when = RuleCondition.Parse(Required(flags, "when"));
+        if (actions.Count == 0)
+            throw new ArgumentException("At least one --action is required.");
+        var rule = new AutomationRule
+        {
+            Id = id,
+            Name = name,
+            Enabled = !flags.ContainsKey("disabled"),
+            When = when,
+            Actions = actions.Select(RuleAction.Parse).ToList(),
+            CooldownSeconds = flags.TryGetValue("cooldown", out var c) ? int.Parse(c, System.Globalization.CultureInfo.InvariantCulture) : 60,
+        };
+        rule.Validate();
+        var rulesPath = JsonRuleStore.RulesPathFor(storePath);
+        var rules = JsonRuleStore.Load(rulesPath);
+        if (rules.Any(r => r.Id == id))
+            throw new InvalidOperationException($"A rule with id '{id}' already exists.");
+        // The trigger and action targets must exist: a rule pointing at a
+        // device that was never registered can never fire, only confuse.
+        var registry = JsonRegistryStore.Load(storePath);
+        _ = registry.GetOrThrow(when.DeviceId);
+        foreach (var action in rule.Actions) _ = registry.GetOrThrow(action.TargetDeviceId);
+        rules.Add(rule);
+        JsonRuleStore.Save(rules, rulesPath);
+        output.WriteLine($"Added rule {rule}");
+        return 0;
+    }
+
+    private static int Rules(TextWriter output, string storePath)
+    {
+        var rules = JsonRuleStore.Load(JsonRuleStore.RulesPathFor(storePath));
+        if (rules.Count == 0) output.WriteLine("No automation rules.");
+        foreach (var r in rules) output.WriteLine(r);
+        return 0;
+    }
+
+    private static int RuleRemove(string[] args, TextWriter output, string storePath)
+    {
+        var (pos, _) = Parse(args, 1);
+        if (pos.Count != 1) return UsageError(output, "Usage: rule-remove <rule-id>");
+        var rulesPath = JsonRuleStore.RulesPathFor(storePath);
+        var rules = JsonRuleStore.Load(rulesPath);
+        if (rules.RemoveAll(r => r.Id == pos[0]) == 0) { output.WriteLine($"Error: No rule with id '{pos[0]}'."); return 1; }
+        JsonRuleStore.Save(rules, rulesPath);
+        output.WriteLine($"Removed rule {pos[0]}.");
+        return 0;
+    }
+
+    private static int RuleSetEnabled(string[] args, TextWriter output, string storePath, bool enabled)
+    {
+        var (pos, _) = Parse(args, 1);
+        if (pos.Count != 1) return UsageError(output, $"Usage: rule-{(enabled ? "enable" : "disable")} <rule-id>");
+        var rulesPath = JsonRuleStore.RulesPathFor(storePath);
+        var rules = JsonRuleStore.Load(rulesPath);
+        var rule = rules.FirstOrDefault(r => r.Id == pos[0]);
+        if (rule is null) { output.WriteLine($"Error: No rule with id '{pos[0]}'."); return 1; }
+        rule.Enabled = enabled;
+        JsonRuleStore.Save(rules, rulesPath);
+        output.WriteLine($"Rule {pos[0]} is now {(enabled ? "enabled" : "disabled")}.");
+        return 0;
+    }
+
+    private static int RunRules(TextWriter output, string storePath)
+    {
+        var registry = JsonRegistryStore.Load(storePath);
+        var firings = EvaluateRules(registry, storePath, output, quietWhenNone: false);
+        _ = firings;
+        return 0;
+    }
+
+    /// <summary>Evaluates the stored rules, persists any state changes and
+    /// cooldown updates, and prints firings. Returns the firings.</summary>
+    private static IReadOnlyList<RuleFiring> EvaluateRules(DeviceRegistry registry, string storePath, TextWriter output, bool quietWhenNone)
+    {
+        var rulesPath = JsonRuleStore.RulesPathFor(storePath);
+        var rules = JsonRuleStore.Load(rulesPath);
+        var firings = AutomationEngine.Evaluate(registry, rules);
+        if (firings.Count == 0)
+        {
+            if (!quietWhenNone) output.WriteLine("No rules fired.");
+            return firings;
+        }
+        JsonRegistryStore.Save(registry, storePath);
+        JsonRuleStore.Save(rules, rulesPath);
+        foreach (var firing in firings)
+        {
+            output.WriteLine($"Rule fired: {firing.RuleId} \"{firing.RuleName}\"");
+            foreach (var a in firing.Applied) output.WriteLine($"  applied: {a}");
+            foreach (var s in firing.Skipped) output.WriteLine($"  skipped: {s}");
+        }
+        return firings;
+    }
+
     // -- parsing helpers -------------------------------------------------
 
     private static (List<string> Positional, Dictionary<string, string> Flags) Parse(string[] args, int start)
@@ -219,5 +349,8 @@ public static class HubCli
         output.WriteLine("  history <id> [--limit N]");
         output.WriteLine("  online <id> | offline <id>");
         output.WriteLine("  sweep [--max-age-minutes N]  (default 60)");
+        output.WriteLine("  rule-add --id ID --name NAME --when DEVICE:FIELD:OP:VALUE --action TARGET:FIELD=VALUE [--action ...] [--cooldown N] [--disabled]");
+        output.WriteLine("  rules | rule-remove <rule-id> | rule-enable <rule-id> | rule-disable <rule-id>");
+        output.WriteLine("  run-rules  (rules also evaluate automatically after every set-state)");
     }
 }
